@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --color-brand: #23e1cb;
+  --color-brand-light: #81eeea;
+  --color-brand-bg: #e1fafe;
+  --color-whatsapp: #4fca2a;
+  --color-yt: #e12341;
+  --color-ink: #1a1a2e;
+}
+
+body {
+  color: var(--color-ink);
+}
