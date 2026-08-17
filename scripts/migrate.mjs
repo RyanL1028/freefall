@@ -1,5 +1,10 @@
-// One-time migration: imports ~50 articles + categories + writers from
+// One-time migration: imports articles + categories + writers from
 // freefall.mystrikingly.com into the Sanity project.
+//
+// The old site's CDN throttles burst requests (returns 202 with an empty
+// body), so this script fetches slowly with backoff retries and resumes
+// automatically (already-imported articles are skipped).
+//
 // Usage: node --env-file=.env.local scripts/migrate.mjs
 import { createClient } from "@sanity/client";
 import { htmlToBlocks } from "@sanity/block-tools";
@@ -33,19 +38,46 @@ const blockSchema = Schema.compile({
 const blockContent = blockSchema.get("body");
 const parseHtml = (html) => new JSDOM(html).window.document;
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch a URL with backoff retries. Strikingly throttles bursts with a 202 +
+// empty body, so treat anything short/empty/non-200 as retryable.
 async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml" },
-  });
-  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
-  return res.text();
+  const backoff = [8000, 16000, 32000, 60000, 90000, 120000];
+  for (let attempt = 0; attempt <= backoff.length; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml" },
+      });
+      const text = await res.text();
+      if (res.ok && text && text.length > 1000) return text;
+      console.log(`  throttled (${res.status}, ${text.length}b) — waiting ${Math.round(backoff[attempt] / 1000)}s…`);
+    } catch (e) {
+      console.log("  fetch error:", e.message);
+    }
+    if (attempt < backoff.length) await sleep(backoff[attempt]);
+  }
+  throw new Error("still throttled after retries: " + url);
 }
 
 async function ensureDataset() {
-  // The "production" dataset already exists (created when the Sanity project
-  // was set up). If it somehow doesn't, create it in the Sanity dashboard:
-  // sanity.io > project > Datasets > Add dataset.
   console.log("Using dataset:", dataset);
+}
+
+// The migration needs a token with write access. Sanity tokens created with
+// role "Viewer" are read-only and will fail here with a 403.
+async function checkWriteAccess() {
+  try {
+    const tmp = await client.create({ _type: "category", title: "__probe__" });
+    await client.delete(tmp._id);
+  } catch (e) {
+    console.error("SANITY WRITE ACCESS FAILED: " + (e.message || e).slice(0, 200));
+    console.error(
+      "Create a WRITE token: sanity.io → Project → API → API tokens → Add token, role: Editor.\n" +
+      "Then set SANITY_TOKEN to it and run again."
+    );
+    process.exit(1);
+  }
 }
 
 const CATEGORIES = [
@@ -121,16 +153,20 @@ async function collectSlugs() {
   return [...slugs];
 }
 
+const MONTHS =
+  /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}/;
+
 async function parseArticle(slug) {
   const html = await fetchText(`${BASE}/blog/${slug}`);
   const $ = cheerio.load(html);
   const container = $(".s-blog-post-section").first();
-  const title = container.find("h1").first().text().trim() || $("title").text().trim();
-  const full = container.text();
-  const date =
-    (full.match(
-      /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}/
-    ) || [])[0] || "";
+  const containerHtml = container.html() || "";
+  const title =
+    container.find("h1").first().text().trim() || $("title").text().trim();
+  if (!title) throw new Error("no title on page");
+
+  const full = $("body").text();
+  const date = (full.match(MONTHS) || [])[0] || "";
   const author = (full.match(/Written by\s+([^,|]+)/) || [])[1]?.trim() || "";
 
   let excerpt = "";
@@ -153,10 +189,12 @@ async function parseArticle(slug) {
   const coverUrl = $('meta[property="og:image"]').attr("content") || "";
 
   let blocks = [];
-  try {
-    blocks = htmlToBlocks(container.html(), blockContent, { parseHtml });
-  } catch (e) {
-    console.log("  block conversion failed:", e.message);
+  if (containerHtml.trim()) {
+    try {
+      blocks = htmlToBlocks(containerHtml, blockContent, { parseHtml });
+    } catch (e) {
+      console.log("  block conversion failed:", e.message);
+    }
   }
   blocks = (blocks || []).filter((b) => {
     const t = (b.children || []).map((c) => c.text || "").join(" ").trim();
@@ -207,22 +245,6 @@ async function seedWriters() {
   }
 }
 
-// The migration needs a token with write access. Sanity tokens created with
-// role "Viewer" are read-only and will fail here with a 403.
-async function checkWriteAccess() {
-  try {
-    const tmp = await client.create({ _type: "category", title: "__probe__" });
-    await client.delete(tmp._id);
-  } catch (e) {
-    console.error("SANITY WRITE ACCESS FAILED: " + (e.message || e).slice(0, 200));
-    console.error(
-      "Create a WRITE token: sanity.io → Project → API → API tokens → Add token, role: Editor.\n" +
-      "Then set SANITY_TOKEN to it and run again."
-    );
-    process.exit(1);
-  }
-}
-
 await ensureDataset();
 await checkWriteAccess();
 const catIds = await ensureCategories();
@@ -231,14 +253,21 @@ const slugs = await collectSlugs();
 console.log("Found", slugs.length, "article slugs");
 await seedWriters();
 
-let ok = 0, fail = 0;
+let ok = 0, fail = 0, skipped = 0;
 for (const slug of slugs) {
+  // Resume: skip articles that already have a title and body.
+  const existing = await client.fetch(
+    `*[_type=="article" && slug.current==$s][0]{_id,title,body}`,
+    { s: slug }
+  );
+  if (existing?.title && existing.body?.length) {
+    skipped++;
+    console.log("skip (already imported)", slug);
+    continue;
+  }
   try {
     const { title, date, author, excerpt, blocks, coverUrl } = await parseArticle(slug);
-    if (!title) {
-      console.log("SKIP (no title)", slug);
-      continue;
-    }
+    if (!blocks.length) console.log("  (no body blocks — importing title/excerpt only)");
     const cover = await uploadCover(coverUrl, slug);
     const catSlug = slugToCat[slug] || "world";
     const doc = {
@@ -253,12 +282,8 @@ for (const slug of slugs) {
       body: blocks,
       coverImage: cover,
     };
-    const existing = await client.fetch(
-      `*[_type=="article" && slug.current==$s][0]._id`,
-      { s: slug }
-    );
-    if (existing) {
-      await client.patch(existing).set(doc).commit();
+    if (existing?._id) {
+      await client.patch(existing._id).set(doc).commit();
     } else {
       await client.create({ _type: "article", ...doc });
     }
@@ -268,5 +293,7 @@ for (const slug of slugs) {
     fail++;
     console.log("FAIL", slug, e.message);
   }
+  // Be gentle to the old site's CDN.
+  await sleep(2000);
 }
-console.log(`\nDone. ${ok} imported, ${fail} failed.`);
+console.log(`\nDone. ${ok} imported, ${skipped} skipped, ${fail} failed.`);
