@@ -40,24 +40,26 @@ const parseHtml = (html) => new JSDOM(html).window.document;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Fetch a URL with backoff retries. Strikingly throttles bursts with a 202 +
-// empty body, so treat anything short/empty/non-200 as retryable.
+// Fetch a URL's raw HTML. Strikingly's CDN throttles our IP (202 + empty
+// body), so we fetch through the Jina reader proxy, which retrieves the page
+// from its own servers and can return the original HTML (X-Return-Format: html).
 async function fetchText(url) {
-  const backoff = [8000, 16000, 32000, 60000, 90000, 120000];
+  const proxy = `https://r.jina.ai/${url}`;
+  const backoff = [5000, 10000, 20000, 40000];
   for (let attempt = 0; attempt <= backoff.length; attempt++) {
     try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml" },
+      const res = await fetch(proxy, {
+        headers: { "X-Return-Format": "html", "x-no-cache": "true" },
       });
       const text = await res.text();
-      if (res.ok && text && text.length > 1000) return text;
-      console.log(`  throttled (${res.status}, ${text.length}b) — waiting ${Math.round(backoff[attempt] / 1000)}s…`);
+      if (res.ok && text && text.length > 2000) return text;
+      console.log(`  jina retry (${res.status}, ${(text || "").length}b)…`);
     } catch (e) {
       console.log("  fetch error:", e.message);
     }
     if (attempt < backoff.length) await sleep(backoff[attempt]);
   }
-  throw new Error("still throttled after retries: " + url);
+  throw new Error("still failed after retries: " + url);
 }
 
 async function ensureDataset() {
