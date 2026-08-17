@@ -25,8 +25,8 @@ export const cmsClient = process.env.SANITY_TOKEN
   : sanityClient;
 
 const articleProjection = `{
-  _id, title, slug, publishedAt, excerpt, author, headline, trending,
-  category->{_id,title,slug,description,color},
+  _id, title, "slug": slug.current, publishedAt, excerpt, author, headline, trending,
+  category->{_id,title,"slug":slug.current,description,color},
   coverImage{asset->{url}},
   body
 }`;
@@ -44,7 +44,7 @@ export function getCategories(): Promise<Category[]> {
   return safe(
     () =>
       sanityClient.fetch(
-        `*[_type=="category"]{_id,title,slug,description,color}|order(title asc)`
+        `*[_type=="category"]{_id,title,"slug":slug.current,description,color}|order(title asc)`
       ),
     []
   );
