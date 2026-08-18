@@ -19,6 +19,26 @@ const oauthProviders = [
   { key: "smartnexus", label: "Sign up with SmartNexus", icon: "S", provider: smartnexusProvider },
 ];
 
+// The welcome email + contact list are handled by the free Cloudflare Worker
+// (see worker/). If it isn't configured yet, the email step is skipped — the
+// subscriber record in Firestore is still saved.
+const NOTIFY_URL = process.env.NEXT_PUBLIC_NOTIFY_URL || "";
+
+async function subscribeEmail(payload: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  consent: boolean;
+}) {
+  if (!NOTIFY_URL) return;
+  const r = await fetch(`${NOTIFY_URL}/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error("Couldn't add you to the email list.");
+}
+
 export default function NewsletterSignup() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -57,17 +77,12 @@ export default function NewsletterSignup() {
       const fName = full.split(" ")[0] || "";
       const lName = full.split(" ").slice(1).join(" ") || "";
       await saveRecord(user.uid, full, key);
-      const r = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: user.email,
-          firstName: fName,
-          lastName: lName,
-          consent,
-        }),
+      await subscribeEmail({
+        email: user.email,
+        firstName: fName,
+        lastName: lName,
+        consent,
       });
-      if (!r.ok) throw new Error("Couldn't add you to the email list.");
       setStatus("done");
       setMsg("You're on the list! Check your inbox for a welcome email.");
     } catch (e: any) {
@@ -90,12 +105,7 @@ export default function NewsletterSignup() {
     }
     setStatus("loading");
     try {
-      const r = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, firstName, lastName, consent }),
-      });
-      if (!r.ok) throw new Error("Couldn't add you to the email list.");
+      await subscribeEmail({ email, firstName, lastName, consent });
       setStatus("done");
       setMsg("You're on the list! Check your inbox for a welcome email.");
     } catch (e: any) {

@@ -1,0 +1,14 @@
+name = "freefall-notify"
+main = "src/index.js"
+compatibility_date = "2026-08-18"
+
+[vars]
+SITE_URL = "https://freefall-news.web.app"
+RESEND_AUDIENCE_NAME = "Free-Fall Newsletter"
+RESEND_FROM = "Free-Fall News <onboarding@resend.dev>"
+ONESIGNAL_APP_ID = "5126ebf9-eff0-4867-9562-33a41623ee75"
+
+# Secrets — set these with wrangler (never in this file):
+#   npx wrangler secret put RESEND_API_KEY
+#   npx wrangler secret put ONESIGNAL_API_KEY
+#   npx wrangler secret put NOTIFY_SECRET

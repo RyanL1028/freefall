@@ -2,7 +2,7 @@
 
 The rebuilt home of Free-Fall News (was freefall.mystrikingly.com) — a student-run news site covering school news, world news, Hong Kong news and more. Made by students, for students.
 
-**Stack:** Next.js 16 (App Router) + TypeScript · Tailwind CSS v4 · Sanity (CMS) · Firebase (Auth + Firestore + App Hosting) · OneSignal (push) · Resend (newsletter email)
+**Stack:** Next.js 16 (App Router, static export) + TypeScript · Tailwind CSS v4 · Sanity (CMS) · Firebase (Auth + Firestore + static Hosting, free Spark plan) · Cloudflare Worker (notifications) · OneSignal (push) · Resend (newsletter email)
 
 ---
 
@@ -64,31 +64,51 @@ It re-runs safely (updates existing articles by slug). Requires `SANITY_TOKEN` w
 
 ### New-article notifications (push + email)
 
-1. In Sanity: **Manage → API → Webhooks → Add webhook**
-   - **URL:** `https://<your-domain>/api/notify`
+Handled by the free **Cloudflare Worker** in [`worker/`](worker/):
+
+1. Deploy the worker and set its secrets (see [Deployment](#deployment)).
+2. In Sanity: **Manage → API → Webhooks → Add webhook**
+   - **URL:** `https://freefall-notify.<your-subdomain>.workers.dev/notify`
    - **Triggers:** Document create + update, filter: `_type == "article"` and `.publishedAt` changed
    - **HTTP headers:** `Authorization: Bearer <your NOTIFY_SECRET>`
-2. Saving a published article then calls `/api/notify`, which sends the OneSignal push and the Resend newsletter email to every subscriber.
+3. Publishing an article then calls the worker, which sends the OneSignal push and the Resend newsletter email to every subscriber.
 
-## Deployment (Firebase App Hosting)
+## Deployment
 
-App Hosting deploys the Next.js SSR app from the GitHub repo.
+This site runs on the **free Firebase Spark plan** (no billing account) as a static export, plus a **free Cloudflare Worker** for the notification jobs.
 
-1. Install/init: `npx firebase-tools init hosting` is **not** used — App Hosting instead connects to the repo:
-   - Firebase console → **Build → App Hosting → Get started**
-   - Connect the `RyanL1028/freefall` repo, set root `/`, framework auto-detected (Next.js).
-2. `apphosting.yaml` already contains the public env vars. Add the **server-only secrets** in the console under **Settings → Environment variables**, marking them secret:
-   - `SANITY_TOKEN`, `ONESIGNAL_API_KEY`, `RESEND_API_KEY`, `NOTIFY_SECRET`
-   - plus `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
-3. Push to `main` → auto-deploys to `https://freefall-news.web.app`.
+### 1. Build + deploy the site (Firebase classic Hosting)
 
-Also set up Firestore + rules once:
 ```bash
+npm run build          # static export → out/
 npx firebase-tools login
+npx firebase-tools deploy --only hosting
+```
+
+That serves the site at `https://freefall-news.web.app` (Firebase automatically serves `index.html` for each directory, and `cleanUrls` is on in `firebase.json`).
+
+Deploy Firestore rules once:
+```bash
 npx firebase-tools deploy --only firestore:rules   # uploads firestore.rules
 ```
 
-**Fallback (classic static hosting):** `next.config.ts` can switch to `output: "export"` and `firebase.json` serves `out/` on classic Hosting, but you lose SSR, ISR, Image Optimization and the API routes.
+### 2. Deploy the notification Worker (Cloudflare, free)
+
+```bash
+cd worker
+npm i
+npx wrangler login
+npx wrangler deploy                 # → https://freefall-notify.<subdomain>.workers.dev
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put ONESIGNAL_API_KEY
+npx wrangler secret put NOTIFY_SECRET
+```
+
+Then put the worker URL in `.env.local` as `NEXT_PUBLIC_NOTIFY_URL` (and in the build env for future deploys) so the newsletter form calls it for the welcome email.
+
+### 3. Publishing flow
+
+New articles go live after a rebuild. Trigger one automatically: in Sanity add a webhook (see above) → point it at a free service that runs `npm run build && firebase deploy`, or just redeploy manually after publishing. `scripts/migrate.mjs` + `scripts/fixmeta.mjs` stay useful for syncing content.
 
 ## Project structure
 

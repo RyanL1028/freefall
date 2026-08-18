@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import ArticleCard from "@/components/ArticleCard";
 import { getArticlesByCategory, getCategories } from "@/lib/sanity";
 
-export const revalidate = 60;
+export async function generateStaticParams() {
+  const categories = await getCategories();
+  return categories.map((c) => ({ slug: c.slug }));
+}
 
 export async function generateMetadata({
   params,
@@ -17,7 +20,7 @@ export async function generateMetadata({
   return {
     title: cat.title,
     description: cat.description,
-    alternates: { canonical: `/categories/${slug}` },
+    alternates: { canonical: `/categories/${slug}/` },
   };
 }
 
