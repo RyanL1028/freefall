@@ -7,7 +7,8 @@ import { getArticleBySlug, getArticles } from "@/lib/sanity";
 import type { Article } from "@/lib/types";
 
 export const revalidate = 60;
-export const dynamicParams = true;
+// Static export requires all dynamic routes to be prerendered (generateStaticParams).
+export const dynamicParams = false;
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://freefall-news.web.app";
 
