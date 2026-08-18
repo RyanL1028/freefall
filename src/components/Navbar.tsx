@@ -5,6 +5,7 @@ const links = [
   { href: "/categories", label: "News Categories" },
   { href: "/all-news", label: "All News" },
   { href: "/writers", label: "Writers" },
+  { href: "/write", label: "✏️ Write" },
 ];
 
 export default function Navbar() {

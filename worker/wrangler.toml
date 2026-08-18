@@ -7,6 +7,10 @@ SITE_URL = "https://freefall-news.web.app"
 RESEND_AUDIENCE_NAME = "Free-Fall Newsletter"
 RESEND_FROM = "Free-Fall News <onboarding@resend.dev>"
 ONESIGNAL_APP_ID = "5126ebf9-eff0-4867-9562-33a41623ee75"
+FIREBASE_API_KEY = "AIzaSyAeSSiCGdw3YLTILi5rjwg7Or1B8c_Oois"
+EDITOR_EMAILS = "social.freefall@gmail.com"
+SANITY_PROJECT_ID = "v0wwcks1"
+SANITY_DATASET = "production"
 
 # Verification codes are stored in KV so we can confirm subscriptions.
 [[kv_namespaces]]

@@ -1,7 +1,8 @@
-// Free-Fall News notification worker (Cloudflare Workers, free tier).
+// Free-Fall News notification + publishing worker (Cloudflare Workers, free tier).
 //
 //  POST /subscribe  → add a Resend contact + email a verification code
 //  GET|POST /verify → confirm the subscription with the code
+//  POST /article    → editor: verify identity + create/update an article in Sanity
 //  POST /notify     → Sanity webhook: OneSignal push + Resend email on publish
 //
 // Deploy: npx wrangler deploy   (secrets via `npx wrangler secret put …`)
@@ -60,6 +61,16 @@ function makeCode() {
   return String(arr[0] % 1000000).padStart(6, "0");
 }
 
+function slugify(title) {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 100) || "article"
+  );
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -74,6 +85,7 @@ export default {
       body = await request.json();
     } catch {}
     if (path === "/subscribe") return subscribe(body, env, request);
+    if (path === "/article") return createArticle(request, body, env);
     if (path === "/notify") return notify(request, body, env);
     return json({ error: "Not found" }, 404);
   },
@@ -147,15 +159,49 @@ async function verify(request, env) {
     : json({ ok: true, verified: true });
 }
 
-async function notify(request, body, env) {
-  const secret = env.NOTIFY_SECRET || "";
-  const auth = request.headers.get("authorization") || "";
-  if (secret && !secureCompare(auth, `Bearer ${secret}`)) {
-    return json({ error: "Unauthorized" }, 401);
+// --- Editor / article publishing ---
+
+// Verifies the caller is a signed-in Firebase user whose email is in the
+// editor allowlist. Uses Firebase's public token endpoint (no admin SDK).
+async function verifyEditor(request, env) {
+  const token = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !env.FIREBASE_API_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: token }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const email = data?.users?.[0]?.email;
+    if (!email) return null;
+    const allowlist = (env.EDITOR_EMAILS || "social.freefall@gmail.com")
+      .split(",")
+      .map((s) => s.trim().toLowerCase());
+    return allowlist.includes(email.toLowerCase()) ? email : null;
+  } catch {
+    return null;
   }
-  const title = body?.title || body?.data?.title || "New article on Free-Fall News";
-  const slug = body?.slug || body?.data?.slug?.current || "";
-  const excerpt = body?.excerpt || body?.data?.excerpt || title;
+}
+
+async function sanityMutate(env, mutations) {
+  const url = `https://${env.SANITY_PROJECT_ID}.api.sanity.io/v2026-08-17/data/mutate/${env.SANITY_DATASET || "production"}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.SANITY_TOKEN}`,
+    },
+    body: JSON.stringify({ mutations }),
+  });
+  return res.json();
+}
+
+async function sendNotifications(title, slug, excerpt, env) {
   const siteUrl = env.SITE_URL || "https://freefall-news.web.app";
   const articleUrl = `${siteUrl}/article/${slug}`;
   const results = {};
@@ -184,7 +230,6 @@ async function notify(request, body, env) {
       if (audienceId) {
         const list = await resend("GET", `/audiences/${audienceId}/contacts`, env);
         let emails = (list?.data || []).map((c) => c.email);
-        // Only email verified subscribers.
         if (env.VERIFY_KV) {
           const verified = [];
           for (const e of emails) {
@@ -208,5 +253,51 @@ async function notify(request, body, env) {
       results.emailError = e?.message;
     }
   }
+  return results;
+}
+
+async function createArticle(request, body, env) {
+  const editorEmail = await verifyEditor(request, env);
+  if (!editorEmail) return json({ error: "You're not authorised to publish." }, 403);
+
+  const { title, excerpt, author, date, categoryId, headline, trending, body: blocks } = body;
+  if (!title || !title.trim()) return json({ error: "A title is required." }, 400);
+  if (!Array.isArray(blocks) || !blocks.length) return json({ error: "The article body is empty." }, 400);
+  if (!env.SANITY_TOKEN) return json({ error: "Publishing isn't configured yet." }, 500);
+
+  const slug = slugify(title);
+  const today = new Date().toISOString().slice(0, 10);
+  const doc = {
+    _type: "article",
+    title: title.trim(),
+    slug: { _type: "slug", current: slug },
+    publishedAt: date || today,
+    excerpt: excerpt || "",
+    author: author || "Free-Fall News",
+    category: categoryId ? { _type: "reference", _ref: categoryId } : undefined,
+    headline: !!headline,
+    trending: !!trending,
+    body: blocks,
+  };
+
+  try {
+    await sanityMutate(env, [{ createOrReplace: { ...doc, _id: `editor-${slug}` } }]);
+    const notifyResults = await sendNotifications(doc.title, slug, doc.excerpt, env);
+    return json({ ok: true, slug, url: `${env.SITE_URL || "https://freefall-news.web.app"}/article/${slug}`, notify: notifyResults });
+  } catch (e) {
+    return json({ error: e?.message || "Failed to publish." }, 500);
+  }
+}
+
+async function notify(request, body, env) {
+  const secret = env.NOTIFY_SECRET || "";
+  const auth = request.headers.get("authorization") || "";
+  if (secret && !secureCompare(auth, `Bearer ${secret}`)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+  const title = body?.title || body?.data?.title || "New article on Free-Fall News";
+  const slug = body?.slug || body?.data?.slug?.current || "";
+  const excerpt = body?.excerpt || body?.data?.excerpt || title;
+  const results = await sendNotifications(title, slug, excerpt, env);
   return json({ ok: true, results });
 }
