@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
   getAuth,
+  setPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   OAuthProvider,
   type Auth,
@@ -23,6 +25,12 @@ if (firebaseReady) {
 }
 
 export const auth: Auth | null = _app ? getAuth(_app) : null;
+
+// Use localStorage instead of IndexedDB for the auth session — avoids a
+// known Firebase "Database is closing/hidden" error on sign-in.
+if (auth) {
+  setPersistence(auth, browserLocalPersistence).catch(() => {});
+}
 
 export const googleProvider = _app ? new GoogleAuthProvider() : null;
 export const microsoftProvider = _app
