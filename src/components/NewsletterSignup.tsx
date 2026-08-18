@@ -14,9 +14,9 @@ import {
 type Status = "idle" | "loading" | "done" | "error";
 
 const oauthProviders = [
-  { key: "google", label: "Sign up with Google", icon: "G", provider: googleProvider },
-  { key: "microsoft", label: "Sign up with Microsoft", icon: "M", provider: microsoftProvider },
-  { key: "smartnexus", label: "Sign up with SmartNexus", icon: "S", provider: smartnexusProvider },
+  { key: "google", label: "Sign up with Google", logo: "/logos/google.svg", provider: googleProvider },
+  { key: "microsoft", label: "Sign up with Microsoft", logo: "/logos/microsoft.svg", provider: microsoftProvider },
+  { key: "smartnexus", label: "Sign up with SmartNexus", logo: "/logos/smartnexus.svg", provider: smartnexusProvider },
 ];
 
 // The welcome email + contact list are handled by the free Cloudflare Worker
@@ -137,8 +137,9 @@ export default function NewsletterSignup() {
                   onClick={() => subscribeViaOAuth(p.key)}
                   className="flex items-center justify-center gap-3 rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold shadow-sm transition hover:border-brand disabled:opacity-50"
                 >
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900 text-xs text-white">
-                    {p.icon}
+                  <span className="grid h-6 w-6 place-items-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.logo} alt="" className="h-5 w-5" />
                   </span>
                   {p.label}
                 </button>
