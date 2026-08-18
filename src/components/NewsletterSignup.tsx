@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import { signInWithPopup } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
 import {
   auth,
-  db,
   googleProvider,
   microsoftProvider,
   smartnexusProvider,
@@ -47,21 +45,6 @@ export default function NewsletterSignup() {
   const [status, setStatus] = useState<Status>("idle");
   const [msg, setMsg] = useState("");
 
-  async function saveRecord(userId: string, name: string, provider: string) {
-    if (!db || !userId) return;
-    try {
-      await setDoc(doc(db, "subscribers", userId), {
-        email,
-        name,
-        provider,
-        consent,
-        subscribedAt: new Date().toISOString(),
-      });
-    } catch {
-      /* Firestore optional — email list still works via Resend */
-    }
-  }
-
   async function subscribeViaOAuth(key: string) {
     const p = oauthProviders.find((x) => x.key === key);
     if (!p?.provider || !auth) {
@@ -76,7 +59,6 @@ export default function NewsletterSignup() {
       const full = user.displayName || "";
       const fName = full.split(" ")[0] || "";
       const lName = full.split(" ").slice(1).join(" ") || "";
-      await saveRecord(user.uid, full, key);
       await subscribeEmail({
         email: user.email,
         firstName: fName,
