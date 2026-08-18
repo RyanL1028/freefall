@@ -31,11 +31,22 @@ export default function WritePage() {
   const [status, setStatus] = useState<Status>("idle");
   const [msg, setMsg] = useState("");
   const [savedUrl, setSavedUrl] = useState("");
+  const [authError, setAuthError] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (auth) return onAuthStateChanged(auth, setUser);
   }, []);
+
+  async function signIn() {
+    setAuthError("");
+    try {
+      const result = await signInWithPopup(auth!, googleProvider!);
+      setUser(result.user);
+    } catch (err: any) {
+      setAuthError(err?.message || "Sign-in failed. Try again.");
+    }
+  }
 
   useEffect(() => {
     getCategories().then((c) => {
@@ -103,12 +114,13 @@ export default function WritePage() {
         <h1 className="text-3xl font-bold">Editor</h1>
         <p className="mt-2 text-slate-500">Sign in with your editor account to write.</p>
         <button
-          onClick={() => signInWithPopup(auth!, googleProvider!)}
+          onClick={signIn}
           className="mt-6 inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold shadow-sm transition hover:border-brand"
         >
           <img src="/logos/google.svg" alt="" className="h-5 w-5" />
           Sign in with Google
         </button>
+        {authError && <p className="mt-3 text-sm text-yt">{authError}</p>}
       </div>
     );
   }
