@@ -6,10 +6,10 @@ import { htmlToBlocks } from "@sanity/block-tools";
 import { Schema } from "@sanity/schema";
 import { auth, googleProvider } from "@/lib/firebase";
 import { getCategories } from "@/lib/sanity";
+import { isEditor } from "@/lib/editors";
 import type { Category } from "@/lib/types";
 
 const NOTIFY_URL = process.env.NEXT_PUBLIC_NOTIFY_URL || "";
-const EDITOR_EMAIL = "social.freefall@gmail.com";
 
 const blockSchema = Schema.compile({
   types: [{ type: "array", name: "body", of: [{ type: "block" }] }],
@@ -43,8 +43,6 @@ export default function WritePage() {
       if (c.length && !categoryId) setCategoryId(c[0]._id);
     });
   }, [categoryId]);
-
-  const isEditor = user?.email?.toLowerCase() === EDITOR_EMAIL;
 
   const exec = useCallback((cmd: string, value?: string) => {
     document.execCommand(cmd, false, value);
@@ -114,7 +112,7 @@ export default function WritePage() {
       </div>
     );
   }
-  if (!isEditor) {
+  if (!isEditor(user)) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-20 text-center">
         <h1 className="text-3xl font-bold">Not authorised</h1>

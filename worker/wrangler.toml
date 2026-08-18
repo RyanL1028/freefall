@@ -8,7 +8,9 @@ RESEND_AUDIENCE_NAME = "Free-Fall Newsletter"
 RESEND_FROM = "Free-Fall News <onboarding@resend.dev>"
 ONESIGNAL_APP_ID = "5126ebf9-eff0-4867-9562-33a41623ee75"
 FIREBASE_API_KEY = "AIzaSyAeSSiCGdw3YLTILi5rjwg7Or1B8c_Oois"
-EDITOR_EMAILS = "social.freefall@gmail.com"
+EDITOR_EMAILS = "ryanlwg1028@gmail.com,social.freefall@gmail.com"
+# Comma-separated Firebase UIDs granted editor access (add here to allow more)
+EDITOR_UIDS = ""
 SANITY_PROJECT_ID = "v0wwcks1"
 SANITY_DATASET = "production"
 

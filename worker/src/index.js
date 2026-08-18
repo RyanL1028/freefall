@@ -178,11 +178,18 @@ async function verifyEditor(request, env) {
     if (!res.ok) return null;
     const data = await res.json();
     const email = data?.users?.[0]?.email;
-    if (!email) return null;
-    const allowlist = (env.EDITOR_EMAILS || "social.freefall@gmail.com")
+    const uid = data?.users?.[0]?.localId;
+    const allowEmails = (env.EDITOR_EMAILS || "social.freefall@gmail.com")
       .split(",")
-      .map((s) => s.trim().toLowerCase());
-    return allowlist.includes(email.toLowerCase()) ? email : null;
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const allowUids = (env.EDITOR_UIDS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (email && allowEmails.includes(email.toLowerCase())) return email;
+    if (uid && allowUids.includes(uid)) return email || uid;
+    return null;
   } catch {
     return null;
   }

@@ -1,11 +1,11 @@
 import Link from "next/link";
+import WriteLink from "./WriteLink";
 
 const links = [
   { href: "/", label: "Home" },
   { href: "/categories", label: "News Categories" },
   { href: "/all-news", label: "All News" },
   { href: "/writers", label: "Writers" },
-  { href: "/write", label: "✏️ Write" },
 ];
 
 export default function Navbar() {
@@ -26,6 +26,7 @@ export default function Navbar() {
               {l.label}
             </Link>
           ))}
+          <WriteLink />
         </div>
       </nav>
     </header>
