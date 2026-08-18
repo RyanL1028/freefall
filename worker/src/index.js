@@ -1,13 +1,14 @@
 // Free-Fall News notification worker (Cloudflare Workers, free tier).
 //
-//  POST /subscribe  → add a Resend contact + send the welcome email
+//  POST /subscribe  → add a Resend contact + email a verification code
+//  GET|POST /verify → confirm the subscription with the code
 //  POST /notify     → Sanity webhook: OneSignal push + Resend email on publish
 //
 // Deploy: npx wrangler deploy   (secrets via `npx wrangler secret put …`)
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -16,6 +17,13 @@ function json(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...CORS },
   });
+}
+
+function html(body, status = 200) {
+  return new Response(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Free-Fall News</title></head><body style="font-family:sans-serif;background:#e1fafe;margin:0;display:grid;place-items:center;min-height:100vh"><div style="background:#fff;padding:32px;border-radius:16px;max-width:420px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)"><h1 style="color:#0d9488;font-size:22px">${body}</h1></div></body></html>`,
+    { status, headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } }
+  );
 }
 
 function secureCompare(a, b) {
@@ -46,23 +54,32 @@ async function getOrCreateAudience(env) {
   return created?.id || created?.data?.id;
 }
 
+function makeCode() {
+  const arr = new Uint32Array(1);
+  crypto.getRandomValues(arr);
+  return String(arr[0] % 1000000).padStart(6, "0");
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "");
+
+    if (path === "/verify") return verify(request, env); // GET (link) or POST (form)
+
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     let body = {};
     try {
       body = await request.json();
     } catch {}
-    if (path === "/subscribe") return subscribe(body, env);
+    if (path === "/subscribe") return subscribe(body, env, request);
     if (path === "/notify") return notify(request, body, env);
     return json({ error: "Not found" }, 404);
   },
 };
 
-async function subscribe(body, env) {
+async function subscribe(body, env, request) {
   const { email, firstName, lastName, consent } = body;
   if (!email || !email.includes("@")) {
     return json({ error: "A valid email is required." }, 400);
@@ -81,16 +98,53 @@ async function subscribe(body, env) {
         unsubscribed: false,
       });
     }
+
+    const code = makeCode();
+    if (env.VERIFY_KV) {
+      await env.VERIFY_KV.put(`code:${email.toLowerCase()}`, code, {
+        expirationTtl: 86400, // 24h
+      });
+    }
+    const workerOrigin = new URL(request.url).origin;
+    const verifyUrl = `${workerOrigin}/verify?email=${encodeURIComponent(email)}&code=${code}`;
+
     await resend("POST", "/emails", env, {
       from: env.RESEND_FROM || "Free-Fall News <onboarding@resend.dev>",
       to: [email],
-      subject: "Welcome to Free-Fall News 🗞️",
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:auto"><h1 style="color:#0d9488">Welcome to Free-Fall News!</h1><p>Thanks for subscribing${firstName ? ", " + firstName : ""}.</p><p>You'll get the latest school and world news, made by students for students — straight to your inbox.</p><p>— The Free-Fall Team</p></div>`,
+      subject: "Confirm your Free-Fall News subscription",
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:auto"><h1 style="color:#0d9488">Welcome to Free-Fall News!</h1><p>Thanks for subscribing to our latest newsletter${firstName ? ", " + firstName : ""}.</p><p>To confirm your subscription, enter this code on the site:</p><p style="font-size:28px;letter-spacing:4px;font-weight:bold;color:#0d9488">${code}</p><p>or click to confirm:</p><p><a href="${verifyUrl}" style="display:inline-block;background:#23e1cb;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">Confirm my subscription</a></p><p>You'll get the latest school and world news, made by students for students — straight to your inbox!</p><p>— Ryan and the Free-Fall Team</p></div>`,
     });
-    return json({ ok: true });
+    return json({ ok: true, needsVerification: true, email });
   } catch (e) {
     return json({ error: e?.message || "Something went wrong." }, 500);
   }
+}
+
+async function verify(request, env) {
+  const url = new URL(request.url);
+  let email = (url.searchParams.get("email") || "").toLowerCase();
+  let code = url.searchParams.get("code") || "";
+  if (request.method === "POST") {
+    try {
+      const b = await request.json();
+      email = (b.email || email).toLowerCase();
+      code = b.code || code;
+    } catch {}
+  }
+  if (!email || !code) return json({ error: "Missing email or code." }, 400);
+  if (!env.VERIFY_KV) return json({ error: "Verification not configured." }, 500);
+
+  const stored = await env.VERIFY_KV.get(`code:${email}`);
+  if (!stored || !secureCompare(stored, code)) {
+    return request.method === "GET"
+      ? html("Verification failed — the code is invalid or expired. Please subscribe again.")
+      : json({ error: "Invalid or expired code." }, 400);
+  }
+  await env.VERIFY_KV.put(`verified:${email}`, "1", { expirationTtl: 31536000 });
+  await env.VERIFY_KV.delete(`code:${email}`);
+  return request.method === "GET"
+    ? html("You're verified! Welcome to the Free-Fall News newsletter 🎉")
+    : json({ ok: true, verified: true });
 }
 
 async function notify(request, body, env) {
@@ -129,7 +183,15 @@ async function notify(request, body, env) {
       const audienceId = await getOrCreateAudience(env);
       if (audienceId) {
         const list = await resend("GET", `/audiences/${audienceId}/contacts`, env);
-        const emails = (list?.data || []).map((c) => c.email);
+        let emails = (list?.data || []).map((c) => c.email);
+        // Only email verified subscribers.
+        if (env.VERIFY_KV) {
+          const verified = [];
+          for (const e of emails) {
+            if (await env.VERIFY_KV.get(`verified:${e.toLowerCase()}`)) verified.push(e);
+          }
+          emails = verified;
+        }
         if (emails.length) {
           await resend("POST", "/emails", env, {
             from: env.RESEND_FROM || "Free-Fall News <onboarding@resend.dev>",
@@ -138,6 +200,8 @@ async function notify(request, body, env) {
             html: `<div style="font-family:sans-serif;max-width:560px;margin:auto"><h1 style="color:#0d9488">${title}</h1><p>${excerpt}</p><p><a href="${articleUrl}" style="display:inline-block;background:#23e1cb;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">Read the full article →</a></p><p style="color:#888;font-size:12px">You're receiving this because you subscribed to the Free-Fall Newsletter.</p></div>`,
           });
           results.email = "sent";
+        } else {
+          results.email = "no verified subscribers";
         }
       }
     } catch (e) {

@@ -8,6 +8,11 @@ RESEND_AUDIENCE_NAME = "Free-Fall Newsletter"
 RESEND_FROM = "Free-Fall News <onboarding@resend.dev>"
 ONESIGNAL_APP_ID = "5126ebf9-eff0-4867-9562-33a41623ee75"
 
+# Verification codes are stored in KV so we can confirm subscriptions.
+[[kv_namespaces]]
+binding = "VERIFY_KV"
+id = "fced2d91d93d4a91986fe0e97627ef75"
+
 # Secrets — set these with wrangler (never in this file):
 #   npx wrangler secret put RESEND_API_KEY
 #   npx wrangler secret put ONESIGNAL_API_KEY

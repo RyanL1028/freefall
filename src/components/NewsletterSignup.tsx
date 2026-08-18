@@ -9,7 +9,7 @@ import {
   smartnexusProvider,
 } from "@/lib/firebase";
 
-type Status = "idle" | "loading" | "done" | "error";
+type Status = "idle" | "loading" | "verify" | "done" | "error";
 
 const oauthProviders = [
   { key: "google", label: "Sign up with Google", logo: "/logos/google.svg", provider: googleProvider },
@@ -27,14 +27,25 @@ async function subscribeEmail(payload: {
   firstName: string;
   lastName: string;
   consent: boolean;
-}) {
-  if (!NOTIFY_URL) return;
+}): Promise<any> {
+  if (!NOTIFY_URL) return { ok: true };
   const r = await fetch(`${NOTIFY_URL}/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error("Couldn't add you to the email list.");
+  return r.json();
+}
+
+async function verifyEmail(email: string, code: string) {
+  if (!NOTIFY_URL) throw new Error("Email verification isn't configured yet.");
+  const r = await fetch(`${NOTIFY_URL}/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!r.ok) throw new Error("That code didn't work. Check it and try again.");
 }
 
 export default function NewsletterSignup() {
@@ -44,6 +55,25 @@ export default function NewsletterSignup() {
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
   const [msg, setMsg] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  async function submitVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (!verifyCode.trim()) return;
+    setVerifying(true);
+    try {
+      await verifyEmail(pendingEmail, verifyCode.trim());
+      setStatus("done");
+      setMsg("You're verified! Welcome to the Free-Fall Newsletter 🎉");
+    } catch (err: any) {
+      setStatus("verify");
+      setMsg(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   async function subscribeViaOAuth(key: string) {
     const p = oauthProviders.find((x) => x.key === key);
@@ -59,12 +89,18 @@ export default function NewsletterSignup() {
       const full = user.displayName || "";
       const fName = full.split(" ")[0] || "";
       const lName = full.split(" ").slice(1).join(" ") || "";
-      await subscribeEmail({
+      const res = await subscribeEmail({
         email: user.email,
         firstName: fName,
         lastName: lName,
         consent,
       });
+      if (res?.needsVerification) {
+        setPendingEmail(user.email);
+        setStatus("verify");
+        setMsg("Check your inbox for your 6-digit confirmation code.");
+        return;
+      }
       setStatus("done");
       setMsg("You're on the list! Check your inbox for a welcome email.");
     } catch (e: any) {
@@ -87,7 +123,13 @@ export default function NewsletterSignup() {
     }
     setStatus("loading");
     try {
-      await subscribeEmail({ email, firstName, lastName, consent });
+      const res = await subscribeEmail({ email, firstName, lastName, consent });
+      if (res?.needsVerification) {
+        setPendingEmail(email);
+        setStatus("verify");
+        setMsg("Check your inbox for your 6-digit confirmation code.");
+        return;
+      }
       setStatus("done");
       setMsg("You're on the list! Check your inbox for a welcome email.");
     } catch (e: any) {
@@ -109,6 +151,23 @@ export default function NewsletterSignup() {
           <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
             <p className="text-lg font-semibold text-brand">🎉 {msg}</p>
           </div>
+        ) : status === "verify" ? (
+          <form onSubmit={submitVerify} className="mt-8 rounded-2xl bg-white p-6 text-left shadow-sm">
+            <p className="font-semibold text-ink">Check your inbox for your 6-digit code</p>
+            <p className="mt-1 text-sm text-slate-500">{msg}</p>
+            <input
+              value={verifyCode}
+              onChange={(e) => setVerifyCode(e.target.value)}
+              placeholder="Enter code"
+              className="mt-4 w-full rounded-full border border-slate-300 bg-white px-4 py-3 text-center text-lg tracking-widest outline-none focus:border-brand"
+            />
+            <button
+              disabled={verifying}
+              className="mt-3 w-full rounded-full bg-brand px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand/90 disabled:opacity-50"
+            >
+              {verifying ? "Verifying…" : "Confirm subscription"}
+            </button>
+          </form>
         ) : (
           <>
             <div className="mt-8 grid gap-3">
