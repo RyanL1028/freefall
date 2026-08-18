@@ -1,4 +1,8 @@
+import fs from "fs";
+import path from "path";
 import type { Metadata } from "next";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export const metadata: Metadata = {
   title: "Terms & Conditions",
@@ -6,37 +10,15 @@ export const metadata: Metadata = {
 };
 
 export default function TermsPage() {
+  const content = fs.readFileSync(
+    path.join(process.cwd(), "src/content/terms.md"),
+    "utf8"
+  );
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="text-3xl font-bold">Terms &amp; Conditions</h1>
-      <div className="prose mt-6 space-y-4 text-slate-700">
-        <p>
-          Welcome to Free-Fall News, a student-run news publication. By using
-          this website you agree to these terms.
-        </p>
-        <h2 className="text-xl font-semibold">Content</h2>
-        <p>
-          All articles are written by students and reflect their own reporting
-          and research. We aim for accuracy but cannot guarantee that every
-          piece is error-free. Please email us if you spot a mistake.
-        </p>
-        <h2 className="text-xl font-semibold">Newsletter</h2>
-        <p>
-          When you subscribe, we store your name and email to send you news
-          updates. You can unsubscribe at any time using the link in any email
-          or by emailing{" "}
-          <a href="mailto:social.freefall@gmail.com" className="text-brand underline">
-            social.freefall@gmail.com
-          </a>.
-        </p>
-        <h2 className="text-xl font-semibold">Contact</h2>
-        <p>
-          Any enquiries, please email{" "}
-          <a href="mailto:social.freefall@gmail.com" className="text-brand underline">
-            social.freefall@gmail.com
-          </a>.
-        </p>
-      </div>
+      <article className="prose prose-slate max-w-none prose-headings:mb-3 prose-headings:mt-8 prose-h1:text-3xl prose-h1:font-extrabold prose-h2:text-xl prose-h2:font-bold prose-h2:text-ink prose-p:leading-relaxed prose-a:text-brand prose-th:text-left prose-th:whitespace-nowrap">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </article>
     </div>
   );
 }
