@@ -113,10 +113,15 @@ New articles go live after a rebuild. Trigger one automatically: in Sanity add a
 ## Project structure
 
 ```
-src/app/            pages + API routes (/api/subscribe, /api/notify) + sitemap/robots
-src/components/     navbar, footer, hero, headline showcase, cards, search, newsletter, push
-src/lib/            sanity, firebase, search, types, resend
-public/             manifest, sw.js, OneSignal workers, PWA icons
+src/app/            pages (home, all-news, categories, article, writers, write, terms, privacy) + sitemap/robots
+src/components/     navbar, footer, hero, headline showcase, cards, search, newsletter, editor, push
+src/lib/            sanity, firebase, search, types, editors, resend
+public/             manifest, sw.js, OneSignal workers, PWA icons, provider logos
 sanity/schema.ts    Sanity content schemas
-scripts/            migrate.mjs, gen-icons.mjs
+worker/             Cloudflare Worker (subscribe/verify/article/notify)
+scripts/            migrate.mjs, fixmeta.mjs, rebody.mjs, rebody-md.mjs, gen-icons.mjs
 ```
+
+## Credits
+
+This site was designed and built with the help of **Claude** (Anthropic's AI assistant) — the site structure, CMS integration, newsletter + verification system, notification worker, and in-app editor were all developed by Claude at the direction of the Free-Fall team.
