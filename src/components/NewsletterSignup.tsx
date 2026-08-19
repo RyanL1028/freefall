@@ -34,8 +34,9 @@ async function subscribeEmail(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!r.ok) throw new Error("Couldn't add you to the email list.");
-  return r.json();
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error || "Couldn't add you to the email list.");
+  return data;
 }
 
 async function verifyEmail(email: string, code: string) {
@@ -80,6 +81,11 @@ export default function NewsletterSignup() {
     if (!p?.provider || !auth) {
       setStatus("error");
       setMsg("Sign-in isn't configured yet. Please use the email form below.");
+      return;
+    }
+    if (!consent) {
+      setStatus("error");
+      setMsg("Please agree to the Terms & Conditions and Privacy Policy first.");
       return;
     }
     setStatus("loading");

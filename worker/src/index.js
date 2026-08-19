@@ -46,15 +46,6 @@ async function resend(method, path, env, body) {
   return res.json();
 }
 
-async function getOrCreateAudience(env) {
-  const name = env.RESEND_AUDIENCE_NAME || "Free-Fall Newsletter";
-  const list = await resend("GET", "/audiences", env);
-  const existing = (list?.data || []).find((a) => a.name === name);
-  if (existing?.id) return existing.id;
-  const created = await resend("POST", "/audiences", env, { name });
-  return created?.id || created?.data?.id;
-}
-
 function makeCode() {
   const arr = new Uint32Array(1);
   crypto.getRandomValues(arr);
@@ -101,21 +92,12 @@ async function subscribe(body, env, request) {
   }
   if (!env.RESEND_API_KEY) return json({ ok: true, note: "email service not configured" });
   try {
-    const audienceId = await getOrCreateAudience(env);
-    if (audienceId) {
-      await resend("POST", `/audiences/${audienceId}/contacts`, env, {
-        email,
-        first_name: firstName || "",
-        last_name: lastName || "",
-        unsubscribed: false,
-      });
-    }
-
     const code = makeCode();
     if (env.VERIFY_KV) {
       await env.VERIFY_KV.put(`code:${email.toLowerCase()}`, code, {
         expirationTtl: 86400, // 24h
       });
+      await env.VERIFY_KV.put(`sub:${email.toLowerCase()}`, "1");
     }
     const workerOrigin = new URL(request.url).origin;
     const verifyUrl = `${workerOrigin}/verify?email=${encodeURIComponent(email)}&code=${code}`;
@@ -233,16 +215,12 @@ async function sendNotifications(title, slug, excerpt, env) {
 
   if (env.RESEND_API_KEY) {
     try {
-      const audienceId = await getOrCreateAudience(env);
-      if (audienceId) {
-        const list = await resend("GET", `/audiences/${audienceId}/contacts`, env);
-        let emails = (list?.data || []).map((c) => c.email);
-        if (env.VERIFY_KV) {
-          const verified = [];
-          for (const e of emails) {
-            if (await env.VERIFY_KV.get(`verified:${e.toLowerCase()}`)) verified.push(e);
-          }
-          emails = verified;
+      if (env.VERIFY_KV) {
+        const listed = await env.VERIFY_KV.list({ prefix: "sub:" });
+        const emails = [];
+        for (const k of listed.keys) {
+          const e = k.name.slice(4);
+          if (await env.VERIFY_KV.get(`verified:${e}`)) emails.push(e);
         }
         if (emails.length) {
           await resend("POST", "/emails", env, {
